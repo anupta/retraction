@@ -1,0 +1,491 @@
+
+#------------------ ©Anupta Jana-----------------#
+#Upload Retraction Watch data set
+from google.colab import files
+uploaded = files.upload()
+
+#-----------------------------#
+#Install Required Libraries
+!pip install pandas numpy matplotlib seaborn plotly wordcloud networkx pybliometrics
+
+#-----------------------------#
+#Load & Preprocess Data
+import pandas as pd
+
+# Load the dataset
+df = pd.read_csv('retraction_watch.csv')
+
+# Convert dates to datetime and extract years
+df['OriginalPaperDate'] = pd.to_datetime(df['OriginalPaperDate'], errors='coerce')
+df['RetractionDate'] = pd.to_datetime(df['RetractionDate'], errors='coerce')
+df['PublicationYear'] = df['OriginalPaperDate'].dt.year
+df['RetractionYear'] = df['RetractionDate'].dt.year
+
+# Calculate time to retraction (in years)
+df['YearsToRetraction'] = (df['RetractionDate'] - df['OriginalPaperDate']).dt.days / 365.25
+
+# Display first 5 rows
+df.head()
+
+#-----------------------------#
+#Basic Descriptive Analysis
+print(f"Total retracted papers: {len(df)}")
+print(f"Time span: {df['PublicationYear'].min()} to {df['RetractionYear'].max()}")
+print(f"Avg. time to retraction: {df['YearsToRetraction'].mean():.1f} years")
+
+#Time-to-Retraction Distribution
+plt.figure(figsize=(10, 6), dpi=600)
+sns.histplot(df['YearsToRetraction'], bins=20, kde=True)
+plt.title('Time to Retraction (Years)')
+plt.xlabel('Years')
+plt.show()
+
+#Top Journal with rertractions
+top_journals = df['Journal'].value_counts().head(10)
+print(top_journals)
+
+#Top Countries with Retractions
+top_countries = df['Country'].value_counts().head(10)
+print(top_countries)
+
+#-----------------------------#
+#Annual Retraction Trends
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+plt.figure(figsize=(14, 6), dpi=600)
+ax = sns.countplot(x='PublicationYear', data=df)
+
+ax.set_xticklabels([int(float(label.get_text())) for label in ax.get_xticklabels()])
+plt.title('Retracted Papers by Publication Year')
+plt.xticks(rotation=90)
+plt.show()
+
+#-----------------------------#
+#Save as CSV and Download
+import pandas as pd
+
+# Assuming 'df' is your DataFrame
+year_counts = df['PublicationYear'].value_counts().sort_index().reset_index()
+year_counts.columns = ['PublicationYear', 'Count']  # Rename columns
+year_counts_table = year_counts.sort_values('PublicationYear')  # Sort by year (optional)
+
+from google.colab import files
+# Save to a CSV file
+year_counts_table.to_csv('retracted_papers_by_year.csv', index=False)
+
+# Download the file to your local machine
+files.download('retracted_papers_by_year.csv')
+
+#-----------------------------#
+#Word Cloud of Retraction Reasons
+from wordcloud import WordCloud
+from collections import Counter
+
+# Extract all retraction reasons
+all_reasons = ';'.join(df['Reason'].dropna()).split(';')
+
+# Filter out unwanted phrases and clean the reasons
+filtered_reasons = [
+    r.strip('+').strip()
+    for r in all_reasons
+    if r.strip('+').strip() not in [
+        "Investigation by Journal/Publisher", 
+        "Investigation by Third Party",
+        "Notice - Limited or No Information",
+        "Date of Article and/or Notice Unknown",
+        "Investigation by Company/Institution"
+    ]
+]
+
+# Count frequencies of remaining reasons
+reason_counts = Counter(filtered_reasons)
+
+# Generate word cloud
+wordcloud = WordCloud(
+    width=800,
+    height=400,
+    background_color='white',
+    colormap='hsv',
+    max_words=100,
+    contour_width=1,
+    contour_color='steelblue'
+).generate_from_frequencies(reason_counts)
+
+# Display
+plt.figure(figsize=(12, 8), dpi=600)
+plt.imshow(wordcloud, interpolation='bilinear')
+plt.axis('off')
+plt.title('Common Retraction Reasons')
+plt.show()
+
+#-----------------------------#
+#Generate the Frequency Table
+import pandas as pd
+from collections import Counter
+
+# Extract and filter retraction reasons
+all_reasons = ';'.join(df['Reason'].dropna()).split(';')
+filtered_reasons = [
+    r.strip('+').strip()
+    for r in all_reasons
+    if r.strip('+').strip().lower() not in [
+        "Investigation by Journal/Publisher", 
+        "Investigation by Third Party",
+        "Notice - Limited or No Information",
+        "Date of Article and/or Notice Unknown",
+        "Investigation by Company/Institution"
+    ]
+]
+
+# Create a frequency table
+reason_counts = Counter(filtered_reasons)
+reason_table = pd.DataFrame.from_dict(reason_counts, orient='index').reset_index()
+reason_table.columns = ['Retraction Reason', 'Count']  # Rename columns
+reason_table = reason_table.sort_values('Count', ascending=False)  # Sort by frequency
+
+# Display the top 15 rows
+print(reason_table.head(11))
+
+#-----------------------------#
+#Checking Scopus Indexing & Quartile (Q1-Q4) Status for Journals
+import pandas as pd
+
+# Download Scimago Journal Rank data (updated annually)
+!wget -O scimagojr.csv https://www.scimagojr.com/journalrank.php?out=xls
+
+# Load Scimago data
+scimago_df = pd.read_csv('scimagojr.csv', sep=';')
+scopus_journals = set(scimago_df['Title'].str.lower().dropna())
+
+#-----------------------------#
+#Match Journals
+# Clean journal names in your dataset (lowercase, remove extra spaces)
+df['Journal_clean'] = df['Journal'].str.lower().str.strip()
+
+# Check Scopus indexing
+df['Is_Scopus_Indexed'] = df['Journal_clean'].isin(scopus_journals)
+
+# Count results
+print(f"Total journals in dataset: {df['Journal'].nunique()}")
+print(f"Scopus-indexed journals: {df['Is_Scopus_Indexed'].sum()}")
+print(f"Non-Scopus journals: {len(df) - df['Is_Scopus_Indexed'].sum()}")
+
+#-----------------------------#
+# Top Scopus-indexed journals with retractions
+top_scopus_journals = df[df['Is_Scopus_Indexed']]['Journal'].value_counts().head(10)
+print("Top retracted journals in Scopus:")
+print(top_scopus_journals)
+
+# Compare retraction reasons in Scopus vs non-Scopus journals
+scopus_reasons = df[df['Is_Scopus_Indexed']]['Reason'].value_counts(normalize=True).head(5)
+non_scopus_reasons = df[~df['Is_Scopus_Indexed']]['Reason'].value_counts(normalize=True).head(5)
+
+print("\nTop retraction reasons in Scopus journals:")
+print(scopus_reasons)
+print("\nTop retraction reasons in non-Scopus journals:")
+print(non_scopus_reasons)
+
+#-----------------------------#
+#Scopus vs Non-Scopus Journals
+import matplotlib.pyplot as plt
+
+# Plot distribution
+plt.figure(figsize=(10, 6),dpi=600)
+df['Is_Scopus_Indexed'].value_counts().plot(kind='bar', color=['#1f77b4', '#ff7f0e'])
+plt.title('Retractions in Scopus vs Non-Scopus Journals')
+plt.xticks([0, 1], ['Non-Scopus', 'Scopus'], rotation=0)
+plt.ylabel('Number of Retractions')
+plt.show()
+
+#-----------------------------#
+# Compare retraction delays
+plt.figure(figsize=(10, 6))
+sns.boxplot(x='Is_Scopus_Indexed', y='YearsToRetraction', data=df)
+plt.title('Time to Retraction: Scopus vs Non-Scopus Journals')
+plt.xticks([0, 1], ['Non-Scopus', 'Scopus'])
+plt.xlabel('Journal Type')
+plt.ylabel('Years to Retraction')
+plt.show()
+
+# Statistical test
+from scipy.stats import mannwhitneyu
+scopus_delay = df[df['Is_Scopus_Indexed']]['YearsToRetraction'].dropna()
+non_scopus_delay = df[~df['Is_Scopus_Indexed']]['YearsToRetraction'].dropna()
+stat, p = mannwhitneyu(scopus_delay, non_scopus_delay)
+print(f"Mann-Whitney U test p-value: {p:.4f}")
+
+#-----------------------------#
+# Get top 5 reasons for each group
+top_reasons = pd.DataFrame({
+    'Scopus': df[df['Is_Scopus_Indexed']]['Reason'].value_counts(normalize=True).head(5),
+    'Non-Scopus': df[~df['Is_Scopus_Indexed']]['Reason'].value_counts(normalize=True).head(5)
+})
+
+# Plot comparison
+top_reasons.plot(kind='barh', figsize=(12, 8))
+plt.title('Top Retraction Reasons by Journal Indexing Status')
+plt.xlabel('Proportion of Retractions')
+plt.show()
+
+#-----------------------------#
+
+#-----------------------------#
+#Download SJR data
+import pandas as pd
+
+# Download latest Scimago data (updated annually)
+!wget -O scimagojr.csv https://www.scimagojr.com/journalrank.php?out=xls
+
+# Load Scimago data (Note: Uses semicolon separator)
+scimago = pd.read_csv("scimagojr.csv", sep=";")
+
+# Keep only relevant columns
+scimago = scimago[['Title', 'SJR', 'SJR Best Quartile', 'Categories']]
+scimago['Journal_Lower'] = scimago['Title'].str.lower()  # Normalize for matching
+
+#-----------------------------#
+# Normalize journal names in your dataset
+df['Journal_Lower'] = df['Journal'].str.lower().str.strip()
+
+# Merge datasets
+merged = pd.merge(
+    df,
+    scimago,
+    how='left',
+    left_on='Journal_Lower',
+    right_on='Journal_Lower'
+)
+
+# Check merge success
+print(f"Matched journals: {merged['SJR'].notna().sum()}/{len(df)}")
+
+#-----------------------------#
+# Count retractions by quartile
+quartile_counts = merged['SJR Best Quartile'].value_counts().sort_index()
+
+# Filter to only include Q1-Q4 (exclude any unexpected values)
+valid_quartiles = ['Q1', 'Q2', 'Q3', 'Q4']
+quartile_counts = quartile_counts[quartile_counts.index.isin(valid_quartiles)]
+
+# Plot quartile distribution
+plt.figure(figsize=(10, 6), dpi=600)
+quartile_counts.plot(kind='bar', color=['#2ca02c','#98df8a','#ffbb78','#ff7f0e'])  # Green to orange gradient
+plt.title('Retractions by Journal Quartile (Q1-Q4)')
+plt.xlabel('Scimago Quartile')
+plt.ylabel('Number of Retractions')
+plt.xticks(rotation=0)
+
+# Add exact counts on top of bars
+for i, count in enumerate(quartile_counts):
+    plt.text(i, count + 0.5, str(count), ha='center')
+
+plt.tight_layout()
+plt.show()
+
+# Add quartile info to original dataframe (keeping only valid quartiles)
+df['Quartile'] = merged['SJR Best Quartile'].where(merged['SJR Best Quartile'].isin(valid_quartiles))
+df['SJR_Score'] = merged['SJR']
+
+#-----------------------------#
+import seaborn as sns
+
+# Time-to-retraction by quartile
+plt.figure(figsize=(12, 6))
+sns.boxplot(
+    x='Quartile',
+    y='YearsToRetraction',
+    data=df,
+    order=['Q1','Q2','Q3','Q4']
+)
+plt.title('Time to Retraction by Journal Quartile')
+plt.show()
+
+# Top reasons by quartile
+for q in ['Q1','Q2','Q3','Q4']:
+    print(f"\nTop retraction reasons in {q} journals:")
+    print(df[df['Quartile']==q]['Reason'].value_counts().head(5))
+
+#-----------------------------#
+
+# Compare citation impact (if you have citation data)
+if 'CitationCount' in df.columns:
+    sns.boxplot(x='Quartile', y='CitationCount', data=df)
+    plt.title('Citations of Retracted Papers by Journal Quartile')
+    plt.show()
+
+# Country-quartile matrix (top 10 countries)
+top_countries = df['Country'].value_counts().head(10).index
+pd.crosstab(
+    df[df['Country'].isin(top_countries)]['Country'],
+    df['Quartile'],
+    normalize='index'
+).style.background_gradient(cmap='Blues')
+
+#-----------------------------#
+df.groupby('Quartile')['YearsToRetraction'].median().sort_values()
+
+#-----------------------------#
+pd.crosstab(df['Country'], df['Quartile']).loc[top_countries]
+#-----------------------------#
+
+#-----------------------------#
+import pandas as pd
+from collections import Counter
+import matplotlib.pyplot as plt
+
+# Load the dataset
+from google.colab import files
+uploaded = files.upload()
+df = pd.read_csv('retraction_watch.csv')
+
+# Display available columns
+print(df.columns)
+
+#-----------------------------#
+# Split the Subject column (which contains semicolon-separated categories)
+all_subjects = []
+for subjects in df['Subject'].dropna():
+    # Split by semicolon and remove (SOC), (HUM) etc. prefixes
+    categories = [s.split(') ')[-1].strip() for s in subjects.split(';')]
+    all_subjects.extend(categories)
+
+# Count frequency of each subject
+subject_counts = Counter(all_subjects)
+
+#-----------------------------#
+# Get top 20 subjects (excluding empty strings)
+top_subjects = pd.DataFrame(
+    [(subj, cnt) for subj, cnt in subject_counts.most_common(20) if subj.strip()],  # This filters out empty strings
+    columns=['Subject', 'Count']
+)
+# Plot
+plt.figure(figsize=(12, 8), dpi=600)
+bars = plt.barh(top_subjects['Subject'], top_subjects['Count'], color='skyblue')
+plt.gca().invert_yaxis()  # Highest count at top
+plt.title('Top 20 Subject Categories for Retracted Papers')
+plt.xlabel('Number of Retractions')
+plt.ylabel('Subject Category')
+
+# Add count labels
+for bar in bars:
+    width = bar.get_width()
+    plt.text(width + 1, bar.get_y() + bar.get_height()/2,
+             f'{int(width)}',
+             ha='left', va='center')
+
+plt.tight_layout()
+plt.show()
+
+#-----------------------------#
+# Extract broad discipline from parentheses (e.g., "(SOC)" from "(SOC) Psychology")
+broad_disciplines = []
+for subjects in df['Subject'].dropna():
+    # Split by semicolon and filter out any NaN/empty values
+    subject_entries = [s for s in subjects.split(';') if pd.notna(s) and s.strip()]
+    disciplines = [s.split(')')[0].strip('(') for s in subject_entries]
+    broad_disciplines.extend(disciplines)
+
+# Count and plot
+discipline_counts = Counter([d for d in broad_disciplines if pd.notna(d) and d.strip()])
+df_disciplines = pd.DataFrame(discipline_counts.most_common(),
+                             columns=['Discipline', 'Count'])
+
+# Map discipline codes to full names
+discipline_names = {
+    'SOC': 'Social Sciences',
+    'HUM': 'Humanities',
+    'B/T': 'Business & Technology',
+    'HSC': 'Health Sciences',
+    'PHY': 'Physical Sciences',
+    'ENV': 'Environmental Sciences',
+    'BLS': 'Biological Sciences'
+}
+
+df_disciplines['Discipline_Name'] = df_disciplines['Discipline'].map(discipline_names)
+
+# Plot
+plt.figure(figsize=(10, 6), dpi=600)
+plt.pie(df_disciplines['Count'],
+        labels=df_disciplines['Discipline_Name'],
+        autopct='%1.1f%%',
+        startangle=90)
+plt.title('Retractions by Broad Discipline')
+plt.show()
+
+#-----------------------------#
+# Create a nicely formatted table of discipline data
+discipline_table = df_disciplines[['Discipline_Name', 'Count']].copy()
+discipline_table['Percentage'] = (discipline_table['Count'] / discipline_table['Count'].sum() * 100).round(1)
+discipline_table = discipline_table.sort_values('Count', ascending=False)
+
+# Display the table with styling
+styled_table = (discipline_table.style
+                .format({'Percentage': '{:.1f}%'})
+                .bar(subset=['Count'], color='#5fba7d')
+                .set_caption('Retractions by Broad Discipline')
+                .set_properties(**{'text-align': 'left'}))
+                
+styled_table
+
+#-----------------------------#
+# Create a subject-reason matrix
+from itertools import product
+
+# Define reasons to exclude
+excluded_reasons = {
+    "Investigation by Journal/Publisher", 
+    "Investigation by Third Party",
+    "Notice - Limited or No Information",
+    "Date of Article and/or Notice Unknown",
+    "Investigation by Company/Institution"
+}
+
+subject_reason = []
+for _, row in df.iterrows():
+    if pd.notna(row['Subject']) and pd.notna(row['Reason']):
+        # Clean and filter subjects (remove empty/whitespace-only)
+        subjects = [s.split(') ')[-1].strip() for s in row['Subject'].split(';') 
+                   if s.strip()]
+        # Clean and filter reasons
+        reasons = [r.strip('+').strip() for r in row['Reason'].split(';') 
+                 if r.strip('+').strip() not in excluded_reasons and r.strip()]
+        for s, r in product(subjects, reasons):
+            if s.strip() and r.strip():  # Final check for empty values
+                subject_reason.append((s, r))
+
+# Create a cross-tabulation
+subject_reason_df = pd.DataFrame(subject_reason, columns=['Subject', 'Reason']).dropna()
+
+# Get filtered reasons (excluding our targets)
+reason_counts = Counter(subject_reason_df['Reason'])
+top_reasons = [r[0] for r in reason_counts.most_common(10) if r[0].strip()]  # Top 5 remaining reasons
+
+# Get top 10 subjects
+subject_counts = Counter([s for s in subject_reason_df['Subject'] if s.strip()])
+top_subjects_list = subject_counts.most_common(10)
+top_subjects = [s[0] for s in top_subjects_list if s[0].strip()]
+
+# Filter the cross-tab
+cross_tab = pd.crosstab(
+    subject_reason_df['Subject'], 
+    subject_reason_df['Reason']
+).loc[top_subjects, top_reasons]
+
+# Heatmap visualization
+plt.figure(figsize=(12, 8), dpi=600)
+sns.heatmap(
+    cross_tab, 
+    annot=True, 
+    fmt='d', 
+    cmap='YlOrRd',
+    linewidths=.5,
+    cbar_kws={'label': 'Number of Retractions'}
+)
+plt.title('Primary Retraction Reasons by Subject Category')
+plt.ylabel('Subject Category')
+plt.xlabel('Retraction Reason')
+plt.xticks(rotation=90)
+plt.tight_layout()
+plt.show()
+#-----------------------------#
